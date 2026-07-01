@@ -11,11 +11,9 @@ from utils.utils import distance_from_grayscale, save_image, clear_torch_cache
 DEFAULT_MODEL_PATHS = {
     # Colorizers
     'AlacGAN': 'networks/alacgan-mac.mlmodelc',
-    'CycleGAN': 'networks/latest_net_G_A.pth',
 
     # Upscalers
-    'ESRGAN': 'networks/RealESRGAN_x4plus_anime_6B.pt',
-    'GigaGAN': 'networks/GigaGAN.ckpt'
+    'ESRGAN': 'networks/RealESRGAN_x4plus_anime_6B.pt'
 }
 
 class ModelSettings:
@@ -78,12 +76,12 @@ def main():
     parser.add_argument('--device', choices=['cpu', 'cuda'], default='cuda', help='Device to use')
 
     parser.add_argument('--colorizer_path', default=None, help='Path to colorizer weights')
-    parser.add_argument('--colorizer_type', choices=['AlacGAN', 'CycleGAN'], default='AlacGAN',
-                        help='Which architecture: AlacGAN or CycleGAN')
+    parser.add_argument('--colorizer_type', choices=['AlacGAN'], default='AlacGAN',
+                        help='Which architecture: AlacGAN')
 
     parser.add_argument('--upscaler_path', default=None, help='Path to upscaler weights')
-    parser.add_argument('--upscaler_type', choices=['ESRGAN', 'GigaGAN'], default='ESRGAN',
-                        help='Which architecture: ESRGAN or GigaGAN')
+    parser.add_argument('--upscaler_type', choices=['ESRGAN'], default='ESRGAN',
+                        help='Which architecture: ESRGAN')
 
     parser.add_argument('--no-upscale', dest='upscale', action='store_false', default=True, help='Disable upscaling')
     parser.add_argument('--no-colorize', dest='colorize', action='store_false', default=True,

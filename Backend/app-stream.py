@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 import os
 import gc
+import shutil
 
 import PIL.Image
 import numpy as np
@@ -32,11 +33,9 @@ gpu_lock = threading.Lock()
 DEFAULT_MODEL_PATHS = {
     # Colorizers
     'AlacGAN': 'networks/alacgan-mac.mlmodelc',
-    'CycleGAN': 'networks/latest_net_G_A.pth',
 
     # Upscalers
-    'ESRGAN': 'networks/RealESRGAN_x4plus_anime_6B.pt',
-    'GigaGAN': 'networks/GigaGAN.ckpt'
+    'ESRGAN': 'networks/RealESRGAN_x4plus_anime_6B.pt'
 }
 
 def resolve_paths(config):
@@ -191,9 +190,24 @@ def get_cache_filename(manga_title, manga_chapter, image_name):
     filename = f"{sanitize_string(image_name.strip())}.webp"
     return os.path.join(chapter_dir, filename)
 
+last_seen_chapters = {}
+
 def get_cache_dir(manga_title, manga_chapter):
     title_dir = os.path.join(config.cache_root.strip().replace(' ', '_'), sanitize_string(manga_title.strip()))
     chapter_dir = os.path.join(title_dir, sanitize_string(manga_chapter.strip()))
+    
+    # Auto-evict old chapters
+    if manga_title in last_seen_chapters and last_seen_chapters[manga_title] != manga_chapter:
+        old_chapter = last_seen_chapters[manga_title]
+        old_chapter_dir = os.path.join(title_dir, sanitize_string(old_chapter.strip()))
+        if os.path.exists(old_chapter_dir):
+            try:
+                shutil.rmtree(old_chapter_dir)
+                print(f"[*] Cleared old cache for {manga_title} chapter {old_chapter}")
+            except Exception as e:
+                print(f"[-] Failed to clear old cache: {e}")
+                
+    last_seen_chapters[manga_title] = manga_chapter
     return chapter_dir
 
 def save_to_cache(manga_title, manga_chapter, image_name, image):
@@ -286,6 +300,7 @@ def initialize_components():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Run Manga Colorizer server')
     parser.add_argument('--device', choices=['cpu', 'cuda', 'mps'], default=None, help='Device to use (default: auto-detect mps > cuda > cpu)')
+    parser.add_argument('--cache_root', default='cache', help='Root directory for cached images')
 
     parser.add_argument('--colorizer_path', default=None, help='Path to colorizer weights')
     parser.add_argument('--colorizer_type', choices=['AlacGAN', 'CycleGAN'], default='AlacGAN',

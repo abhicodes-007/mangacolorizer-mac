@@ -9,7 +9,7 @@ if (window.injectedMC !== 1) {
 
     // Configuration variables
     var apiURL = ''
-    var maxActiveFetches = 1;  // Number of images to request and process parallely
+    var maxActiveFetches = 50;  // Number of images to request and process parallely
     var colorTolerance = 30;  // MSE Cutoff check for an already-colored image
     var colorStride = 4;  // Skip every this many rows and columns pixels for MSE calculation
 
@@ -204,7 +204,7 @@ if (window.injectedMC !== 1) {
             if (json.msg)
                 console.log(`[MC] [${index}] Message: ${json.msg}`);
             if (json.colorImgData) {
-                if(img.src != savedSrc){
+                if(savedSrc && img.src && img.src != savedSrc){
                     console.log(`[MC] [${index}] Image src changed while request was in progress, invalidating...`)
                     img.removeAttribute('data-is-processed')
                     return;
@@ -234,34 +234,38 @@ if (window.injectedMC !== 1) {
         });
     }
 
-    const setColoredOrFetch = (index, img, imgName, apiURL, force, imgContext, mangaProps) => {
+    const setColoredOrFetch = (index, img, imgName, apiURL, force, imgContext, mangaProps, realSrc, isLazy) => {
         var canSendData = true;
-        try {
-            const grayMse = grayscaleMSE(index, imgContext);
-            const grayDist = maxDistFromGray(index, imgContext);
+        if (imgContext) {
+            try {
+                const grayMse = grayscaleMSE(index, imgContext);
+                const grayDist = maxDistFromGray(index, imgContext);
 
-            const ct = colorTolerance;
-            if (!force && (grayMse >= ct*10 || (grayMse >= ct && grayDist!=0))) {
-                img.dataset.isColored = true;
-                img.dataset.isProcessed = true;
-                console.log(`[MC] [${index}] Already colored: ${imgName}`);
-                return 1;
+                const ct = colorTolerance;
+                if (!force && (grayMse >= ct*10 || (grayMse >= ct && grayDist!=0))) {
+                    img.dataset.isColored = true;
+                    img.dataset.isProcessed = true;
+                    console.log(`[MC] [${index}] Already colored: ${imgName}`);
+                    return 1;
+                }
+            } catch(eIsColor) {
+                canSendData = false
+                if (!eIsColor.message.startsWith("Failed to execute 'getImageData'")) {
+                    console.log(`[MC] [${index}] Colorized context error: ${eIsColor}`);
+                    return 0;
+                }
             }
-        } catch(eIsColor) {
-            canSendData = false
-            if (!eIsColor.message.startsWith("Failed to execute 'getImageData'")) {
-                console.log(`[MC] [${index}] Colorized context error: ${eIsColor}`);
-                return 0;
-            }
+        } else {
+            canSendData = false;
         }
 
-        const isAnimated = img.src.includes('animation')
+        const isAnimated = realSrc.includes('animation')
         if (force || activeFetches < maxActiveFetches) {
             activeFetches += 1;
             img.dataset.isProcessed = true;
             const postData = {
                 imgName: imgName,
-                imgURL: img.src,
+                imgURL: realSrc,
                 imgWidth: img.width,
 				imgHeight: img.height,
 				cache: cache && !isAnimated,
@@ -299,13 +303,17 @@ if (window.injectedMC !== 1) {
         }
     }
 
-    const colorizeImg = (index, img, apiURL, force, mangaProps) => {
+    const colorizeImg = (index, img, apiURL, force, mangaProps, isLazy) => {
         if (apiURL) try {
             const imageName = mangaProps.altText ? img.alt : ''
-            const imgName = imageName || (img.src || img.dataset?.src || '').rsplit('/', 1)[1];
+            const realSrc = img.src || img.dataset?.src || img.dataset?.original || img.dataset?.lazySrc || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
+            const imgName = imageName || realSrc.rsplit('/', 1)[1];
             if (imgName) {
-                let imgContext = canvasContextFromImg(img);
-                return setColoredOrFetch(index, img, imgName, apiURL, force, imgContext, mangaProps);
+                let imgContext = null;
+                if (!isLazy && img.complete && img.naturalWidth > 0) {
+                    imgContext = canvasContextFromImg(img);
+                }
+                return setColoredOrFetch(index, img, imgName, apiURL, force, imgContext, mangaProps, realSrc, isLazy);
             }
             return 0;
         } catch(e) {
@@ -398,12 +406,12 @@ if (window.injectedMC !== 1) {
 
         const site = Object.keys(siteConfigurations).find(site => window.location.hostname.includes(site));
         const config = siteConfigurations[site];
-        const title = site ? parseQuery(config.titleQuery) : '';
-        const chapter = site ? parseQuery(config.chapterQuery) : '';
+        const title = (site ? parseQuery(config.titleQuery) : '') || window.location.hostname;
+        const chapter = (site ? parseQuery(config.chapterQuery) : '') || window.location.pathname;
         const pageNameFromAltText = site ? config.useAltTextAsImageName : false
 
         const mangaProps = {title: title, chapter: chapter, altText: pageNameFromAltText}
-        let status = colorizeImg(0, img, apiURL, true, mangaProps);
+        let status = colorizeImg(0, img, apiURL, true, mangaProps, false);
         console.log('[MC] Force colorization status: ', status)
     }
 
@@ -414,7 +422,7 @@ if (window.injectedMC !== 1) {
                 "colorTolerance", "colorStride", "minImgHeight", "minImgHeight"], (result) => {
                 apiURL = result.apiURL;
                 if (apiURL && siteConfigurations) {
-                    maxActiveFetches = Number(result.maxActiveFetches || "1")
+                    maxActiveFetches = Number(result.maxActiveFetches || "50")
                     showOriginal = result.showOriginal
                     showColorized = result.showColorized
 
@@ -435,8 +443,8 @@ if (window.injectedMC !== 1) {
 
                     const site = Object.keys(siteConfigurations).find(site => window.location.hostname.includes(site));
                     const config = siteConfigurations[site];
-                    const title = site ? parseQuery(config.titleQuery) : '';
-                    const chapter = site ? parseQuery(config.chapterQuery) : '';
+                    const title = (site ? parseQuery(config.titleQuery) : '') || window.location.hostname;
+                    const chapter = (site ? parseQuery(config.chapterQuery) : '') || window.location.pathname;
                     const pageNameFromAltText = site ? config.useAltTextAsImageName : false
 
                     console.log(`[MC] Website: ${site}, Title: ${title}, Chapter: ${chapter}`)
@@ -454,6 +462,12 @@ if (window.injectedMC !== 1) {
                     total= images.length;
 
                     images.forEach((img, index) => {
+                        let isLazy = false;
+                        const realSrc = img.src || img.dataset?.src || img.dataset?.original || img.dataset?.lazySrc || img.getAttribute('data-src') || img.getAttribute('data-lazy-src') || '';
+                        if (!img.src && realSrc) {
+                            isLazy = true;
+                        }
+
                         if (img.dataset.isCloned) {
                             return  // continue
                         } else if (img.dataset.isProcessed && img.dataset.isColored) {
@@ -462,16 +476,16 @@ if (window.injectedMC !== 1) {
                             failed++
                         } else if (img.dataset.isProcessed){
                             processing++
-                        } else if (!img.complete || !img.src) {
+                        } else if (!isLazy && (!img.complete || !img.src)) {
                             img.addEventListener('load', colorizeMangaEventHandler, { passive: true });
                             total--
-                        } else if (img.width > 0 && img.width < minImgWidth || img.height > 0 && img.height < minImgHeight) {
+                        } else if (!isLazy && (img.width > 0 && img.width < minImgWidth || img.height > 0 && img.height < minImgHeight)) {
                             skipped++
                         } else if (activeFetches >= maxActiveFetches){
                             awaited++
                         } else {
                             const mangaProps = {title: title, chapter: chapter, altText: pageNameFromAltText}
-                            let status = colorizeImg(index, img, apiURL, false, mangaProps);
+                            let status = colorizeImg(index, img, apiURL, false, mangaProps, isLazy);
                             switch(status){
                                 case 0: failed++; break;
                                 case 1: colored++; break;
@@ -541,6 +555,11 @@ if (window.injectedMC !== 1) {
                 }
 
                 if (mutation.type === 'attributes' && mutation.attributeName === 'src') {
+                    const newSrc = originalImg.src || '';
+                    if (!newSrc || newSrc.startsWith('data:image/') || newSrc.includes('blank')) {
+                        return; // Ignore placeholder/unload to keep colorized image on screen
+                    }
+                    
                     clonedImg.remove();
                     originalImg.removeAttribute('data-is-processed')
                     originalImg.removeAttribute('data-is-colored')
